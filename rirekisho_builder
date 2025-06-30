@@ -1,0 +1,987 @@
+from openai import OpenAI
+import os
+import json
+
+# replace with your actual key later
+os.environ["OPENAI_API_KEY"] = "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"
+client = OpenAI()
+
+def collect_education_entries():
+    """
+    Handles collecting education history entries interactively.
+    Returns a list of education entry dictionaries.
+    """
+
+    education_question = """
+    Please describe your education history. Include:
+    - school name
+    - degree or major
+    - when you started (year/month)
+    - when you graduated (year/month, or say still attending)
+    """
+
+    validation_prompt_template = """
+    You are a Japanese resume assistant helping foreigners.
+    The user gave this education information:
+    "{combined_answer}"
+
+    Your task:
+    1. Check if it includes:
+       - school name
+       - major
+       - year and month of entry
+       - year and month of graduation (or say still attending)
+    2. If anything is missing, politely ask ONLY about the missing part in simple English.
+    3. If everything is complete, then YOU should:
+       - translate or transliterate the school name to Japanese on your own
+       - translate or transliterate the major to Japanese on your own
+    4. Finally, convert it to JSON in this exact format:
+    {{
+      "school_name": "Japanese school name",
+      "major": "Japanese major name",
+      "start_year": 2023,
+      "start_month": 4,
+      "end_year": 2027,
+      "end_month": 3
+    }}
+    5. Do not ask the user to provide Japanese text. Do it yourself.
+    6. Reply ONLY with JSON if all details are there, no other text, no markdown code block.
+    """
+
+    entries = []
+
+    print(education_question)
+    user_input = input("> ")
+    combined_answer = user_input.strip() + " "
+
+    while True:
+        education_data = None
+        retries = 0
+        max_retries = 5
+
+        while not education_data and retries < max_retries:
+            prompt = validation_prompt_template.format(combined_answer=combined_answer.strip())
+
+            response = client.chat.completions.create(
+                model="gpt-4o",
+                messages=[
+                    {
+                        "role": "system",
+                        "content": "You are a helpful Japanese resume assistant."
+                    },
+                    {
+                        "role": "user",
+                        "content": prompt
+                    }
+                ]
+            )
+
+            gpt_reply = response.choices[0].message.content.strip()
+
+            print("\n=== GPT RAW REPLY ===")
+            print(gpt_reply)
+            print("=====================\n")
+
+            # clean markdown if GPT uses ```json
+            if gpt_reply.startswith("```"):
+                gpt_reply = gpt_reply.replace("```json", "").replace("```", "").strip()
+
+            try:
+                education_data = json.loads(gpt_reply)
+                print("\n✅ Education entry saved.\n")
+            except json.JSONDecodeError:
+                print("\n⚠️ GPT did not return valid JSON. Please clarify:")
+                next_input = input("> ")
+                combined_answer += next_input.strip() + " "
+                retries += 1
+                continue
+
+        if not education_data:
+            print("\n❌ Could not parse education after multiple attempts. Skipping.\n")
+            break
+
+        entries.append(education_data)
+
+        followup = input(
+            "Is there anything else you would like to add to your education section? (yes/no)\n> "
+        ).strip().lower()
+
+        if followup in ["no", "n"]:
+            print("\n✅ All education entries saved. Moving on!\n")
+            break
+        else:
+            print(education_question)
+            next_school = input("> ")
+            combined_answer = next_school.strip() + " "  # reset for next block
+
+    return entries
+def collect_name_entry():
+    """
+    Collects and confirms a user's name for a Japanese resume.
+    Returns a dictionary:
+    {
+        "english_name": ...,
+        "japanese_kanji": ...,
+        "katakana": ...
+    }
+    """
+
+    print("""
+    Please type your full name in English order (First Last).
+    The system will convert it to Japanese style automatically.
+    """)
+
+    english_name = input("> ").strip()
+
+    prompt = f"""
+You are a Japanese resume assistant.
+The user entered their name in English order:
+"{english_name}"
+
+Your task:
+1. Convert to family-name-first order for a Japanese resume.
+2. Generate a katakana reading for the name.
+3. If the name is a typical Japanese name, provide a reasonable kanji.
+   If the name is foreign, set the "japanese_kanji" field to null.
+4. Respond strictly in JSON only, no polite commentary, no markdown, no explanation. 
+Use this exact structure:
+{{
+  "english_name": "John Smith",
+  "japanese_kanji": "山田太郎",
+  "katakana": "スミス ジョン"
+}}
+If there is no kanji, then japanese_kanji is just katakana:
+{{
+  "english_name": "John Smith",
+  "japanese_kanji": スミス ジョン,
+  "katakana": "スミス ジョン"
+}}
+Respond with JSON only. Nothing else.
+"""
+
+    retries = 0
+    max_retries = 5
+
+    while retries < max_retries:
+        response = client.chat.completions.create(
+            model="gpt-4o",
+            messages=[
+                {
+                    "role": "system",
+                    "content": "You are a helpful Japanese resume assistant."
+                },
+                {
+                    "role": "user",
+                    "content": prompt
+                }
+            ]
+        )
+
+        gpt_reply = response.choices[0].message.content.strip()
+
+        print("\n=== GPT RAW REPLY ===")
+        print(gpt_reply)
+        print("=====================\n")
+
+        # clean markdown code block if present
+        if gpt_reply.startswith("```"):
+            gpt_reply = gpt_reply.replace("```json", "").replace("```", "").strip()
+
+        try:
+            name_data = json.loads(gpt_reply)
+            print(f"\nThe katakana for your name is suggested as: {name_data['katakana']}")
+            confirm = input("Is this katakana correct? (yes/no)\n> ").strip().lower()
+
+            if confirm in ["yes", "y"]:
+                print("\n✅ Name entry saved.\n")
+                return name_data
+            else:
+                manual_katakana = input("OK, please type the correct katakana spelling:\n> ").strip()
+                name_data["katakana"] = manual_katakana
+                print("\n✅ Name entry saved with your correction.\n")
+                return name_data
+
+        except json.JSONDecodeError:
+            print("\n⚠️ GPT did not return valid JSON. Retrying...")
+            retries += 1
+
+    # after too many retries
+    print("\n❌ Could not reliably get a name conversion after multiple attempts. Please try again later.\n")
+    return {
+        "english_name": english_name,
+        "japanese_kanji": None,
+        "katakana": ""
+    }
+
+def collect_work_entries():
+    """
+    Handles collecting work history entries interactively.
+    Returns a list of work entry dictionaries.
+    """
+
+    work_question = """
+    Please describe your work history. Include:
+    - company name
+    - position or role
+    - when you started (year/month)
+    - when you ended (year/month, or say still working)
+    """
+
+    validation_prompt_template = """
+    You are a Japanese resume assistant for foreigners.
+    The user gave this work history information:
+    "{combined_answer}"
+
+    Your task:
+    1. Check if it includes:
+       - company name
+       - position or role
+       - year and month of entry
+       - year and month of exit (or say still working)
+    2. If anything is missing, politely ask ONLY about the missing item in simple English.
+    3. If everything is complete, then YOU should:
+       - translate or transliterate the company name to Japanese on your own
+       - translate or transliterate the position title to Japanese on your own
+    4. Finally, convert it to JSON in this exact format:
+    {{
+      "company_name": "Japanese company name",
+      "position": "Japanese position title",
+      "start_year": 2021,
+      "start_month": 4,
+      "end_year": 2024,
+      "end_month": 3
+    }}
+    5. Do not ask the user to provide Japanese text. Do it yourself.
+    6. Reply ONLY with JSON if all details are there, no other text, no markdown code block.
+    """
+
+    entries = []
+
+    print(work_question)
+    user_input = input("> ")
+    combined_answer = user_input.strip() + " "
+
+    while True:
+        work_data = None
+        retries = 0
+        max_retries = 5
+
+        while not work_data and retries < max_retries:
+            prompt = validation_prompt_template.format(combined_answer=combined_answer.strip())
+
+            response = client.chat.completions.create(
+                model="gpt-4o",
+                messages=[
+                    {
+                        "role": "system",
+                        "content": "You are a helpful Japanese resume assistant."
+                    },
+                    {
+                        "role": "user",
+                        "content": prompt
+                    }
+                ]
+            )
+
+            gpt_reply = response.choices[0].message.content.strip()
+
+            print("\n=== GPT RAW REPLY ===")
+            print(gpt_reply)
+            print("=====================\n")
+
+            # clean markdown code fences if present
+            if gpt_reply.startswith("```"):
+                gpt_reply = gpt_reply.replace("```json", "").replace("```", "").strip()
+
+            try:
+                work_data = json.loads(gpt_reply)
+                print("\n✅ Work history entry saved.\n")
+            except json.JSONDecodeError:
+                print(f"\nGPT: {gpt_reply}")
+                next_input = input("> ")
+                combined_answer += next_input.strip() + " "
+                retries += 1
+                continue
+
+        if not work_data:
+            print("\n❌ Could not parse work history after multiple attempts. Skipping.\n")
+            break
+
+        entries.append(work_data)
+
+        followup = input(
+            "Is there anything else you would like to add to your work history section? (yes/no)\n> "
+        ).strip().lower()
+
+        if followup in ["no", "n"]:
+            print("\n✅ All work history entries saved. Moving on!\n")
+            break
+        else:
+            print(work_question)
+            next_job = input("> ")
+            combined_answer = next_job.strip() + " "  # reset for the next block
+
+    return entries
+
+def collect_gender():
+    """
+    Collects and confirms the user's gender.
+    Returns '男性' or '女性'.
+    """
+
+    print("""
+    Please enter your gender. Type 'male' or 'female'.
+    """)
+    
+    while True:
+        gender_input = input("> ").strip().lower()
+        
+        if gender_input in ["male", "m"]:
+            japanese_gender = "男性"
+        elif gender_input in ["female", "f"]:
+            japanese_gender = "女性"
+        else:
+            print("Sorry, please type 'male' or 'female' only.")
+            continue
+        
+        print(f"\nYou entered: {japanese_gender}")
+        confirm = input("Is this correct? (yes/no)\n> ").strip().lower()
+        
+        if confirm in ["yes", "y"]:
+            print("\n✅ Gender saved.\n")
+            return japanese_gender
+        else:
+            print("OK, please re-enter your gender:")
+def collect_address_entry():
+    """
+    Collects the user's address for a Japanese resume:
+    - address (full, in Japanese style)
+    - postal code (separate)
+    Returns:
+    {
+      "address": "東京都世田谷区太子堂2-14-6",
+      "postal_code": "154-0004"
+    }
+    """
+
+    address_question = """
+    Please enter your current address in Japan. Include:
+    - prefecture
+    - city/ward
+    - street and block (example: 2-14-6)
+    - postal code
+    Example: "Tokyo Setagaya Taishido 2-14-6 154-0004"
+    """
+
+    validation_prompt_template = """
+    You are a Japanese resume assistant helping foreigners. 
+    The user gave this address information:
+    "{combined_answer}"
+
+    Your task:
+    1. Check if it includes:
+       - a full Japanese-style address
+       - a postal code
+    2. If anything is missing, politely ask ONLY about the missing part in simple English.
+    3. If everything is present, transform the address to proper Japanese format 
+       (prefecture first, ward/city, then block/street).
+    4. Output JSON in this exact format:
+    {{
+      "address": "東京都世田谷区太子堂2-14-6",
+      "postal_code": "154-0004"
+    }}
+    5. Example: if the user types "Tokyo Setagaya Taishido 2-14-6 154-0004", 
+    you must transform it to:
+      address: 東京都世田谷区太子堂2-14-6
+      postal_code: 154-0004
+    6. Reply ONLY with JSON if complete, no other text.
+    """
+
+    print(address_question)
+    user_input = input("> ")
+    combined_answer = user_input.strip() + " "
+
+    address_data = None
+
+    while not address_data:
+        prompt = validation_prompt_template.format(combined_answer=combined_answer.strip())
+
+        response = client.chat.completions.create(
+            model="gpt-4o",
+            messages=[
+                {
+                    "role": "system",
+                    "content": "You are a helpful Japanese resume assistant."
+                },
+                {
+                    "role": "user",
+                    "content": prompt
+                }
+            ]
+        )
+
+        gpt_reply = response.choices[0].message.content.strip()
+
+        try:
+            address_data = json.loads(gpt_reply)
+            print("\n✅ Address saved.\n")
+        except json.JSONDecodeError:
+            print(f"\nGPT: {gpt_reply}")
+            next_input = input("> ")
+            combined_answer += next_input.strip() + " "
+            continue
+
+    return address_data
+def collect_address_entry():
+    """
+    Collects the user's address for a Japanese resume:
+    - address (full, in Japanese style)
+    - postal code (separate)
+    Returns:
+    {
+      "address": "東京都世田谷区太子堂2-14-6",
+      "postal_code": "154-0004"
+    }
+    """
+
+    address_question = """
+    Please enter your current address in Japan. Include:
+    - prefecture
+    - city/ward
+    - street and block (example: 2-14-6)
+    - postal code
+    Example: "Tokyo Setagaya Taishido 2-14-6 154-0004"
+    """
+
+    validation_prompt_template = """
+    You are a Japanese resume assistant helping foreigners. 
+    The user gave this address information:
+    "{combined_answer}"
+
+    Your task:
+    1. Check if it includes:
+       - a full Japanese-style address
+       - a postal code
+    2. If anything is missing, politely ask ONLY about the missing part in simple English.
+    3. If everything is present, transform the address to proper Japanese format 
+       (prefecture first, ward/city, then block/street).
+    4. Output JSON in this exact format:
+    {{
+      "address": "東京都世田谷区太子堂2-14-6",
+      "postal_code": "154-0004"
+    }}
+    5. Example: if the user types "Tokyo Setagaya Taishido 2-14-6 154-0004", 
+    you must transform it to:
+      address: 東京都世田谷区太子堂2-14-6
+      postal_code: 154-0004
+    6. Reply ONLY with JSON if complete, no other text, no markdown code block.
+    """
+
+    print(address_question)
+    user_input = input("> ")
+    combined_answer = user_input.strip() + " "
+
+    address_data = None
+
+    while not address_data:
+        prompt = validation_prompt_template.format(combined_answer=combined_answer.strip())
+
+        response = client.chat.completions.create(
+            model="gpt-4o",
+            messages=[
+                {
+                    "role": "system",
+                    "content": "You are a helpful Japanese resume assistant."
+                },
+                {
+                    "role": "user",
+                    "content": prompt
+                }
+            ]
+        )
+
+        gpt_reply = response.choices[0].message.content.strip()
+
+        print("\n=== GPT RAW REPLY ===")
+        print(gpt_reply)
+        print("=====================\n")
+
+        try:
+            # remove markdown if GPT uses ```
+            if gpt_reply.startswith("```"):
+                gpt_reply = gpt_reply.replace("```json", "").replace("```", "").strip()
+            
+            address_data = json.loads(gpt_reply)
+            print("\n✅ Address saved.\n")
+        except json.JSONDecodeError:
+            print(f"\nGPT: {gpt_reply}")
+            next_input = input("> ")
+            combined_answer += next_input.strip() + " "
+            continue
+
+    return address_data
+
+def collect_phone_number():
+    """
+    Collects and confirms the user's Japanese phone number.
+    Returns a string with the phone number.
+    """
+
+    print("""
+    Please enter your phone number in Japan, including the area code.
+    Example: 090-1234-5678
+    """)
+
+    while True:
+        phone_input = input("> ").strip()
+        
+        print(f"\nYou entered: {phone_input}")
+        confirm = input("Is this correct? (yes/no)\n> ").strip().lower()
+        
+        if confirm in ["yes", "y"]:
+            print("\n✅ Phone number saved.\n")
+            return phone_input
+        else:
+            print("OK, please re-enter your phone number:")
+def collect_birthdate():
+    """
+    Collects and confirms the user's birthdate.
+    Returns a dictionary:
+    {
+      "birth_year": 1998,
+      "birth_month": 5,
+      "birth_day": 14,
+      "formatted": "1998年5月14日"
+    }
+    """
+    print("""
+    Please enter your date of birth.
+    - Year (YYYY)
+    - Month (MM)
+    - Day (DD)
+    """)
+
+    while True:
+        try:
+            year = int(input("Birth year (e.g. 1998):\n> ").strip())
+            month = int(input("Birth month (e.g. 5):\n> ").strip())
+            day = int(input("Birth day (e.g. 14):\n> ").strip())
+        except ValueError:
+            print("Please enter numbers only. Let's try again.\n")
+            continue
+        
+        formatted = f"{year}年{month}月{day}日"
+        print(f"\nYou entered: {formatted}")
+        confirm = input("Is this correct? (yes/no)\n> ").strip().lower()
+        
+        if confirm in ["yes", "y"]:
+            print("\n✅ Birthdate saved.\n")
+            return {
+                "birth_year": year,
+                "birth_month": month,
+                "birth_day": day,
+                "formatted": formatted
+            }
+        else:
+            print("OK, let's re-enter your birthdate.\n")
+def collect_certification_entries():
+    """
+    Collects certifications/licenses interactively with their acquisition dates.
+    Returns a list of certification dictionaries:
+    [
+      {
+        "certification_name": "普通自動車免許",
+        "year": 2023,
+        "month": 6
+      },
+      ...
+    ]
+    """
+
+    cert_question = """
+    Please describe any certifications or licenses you have. Include:
+    - certification or license name
+    - when you obtained it (year/month)
+    If you have none, type 'none'.
+    """
+
+    validation_prompt_template = """
+    You are a Japanese resume assistant helping foreigners.
+    The user gave this certification information:
+    "{combined_answer}"
+
+    Your task:
+    1. Check if it includes:
+       - a certification or license name
+       - the year and month obtained
+    2. Confirm if this is a legitimate, recognized certification suitable for a Japanese rirekisho:
+       - For example, valid: JLPT, TOEIC, Driver's License, CPA, nursing license
+       - Invalid examples: SAT scores, school GPA, personal club awards
+       - If it seems invalid, politely tell the user this is not a recognized certification and ask for another.
+    3. If any parts are missing, politely ask ONLY about the missing element in simple English.
+    4. If everything is correct and appropriate, then YOU should:
+       - translate or transliterate the certification name to Japanese on your own
+    5. Finally, output JSON in this exact format:
+    {{
+      "certification_name": "Japanese name",
+      "year": 2023,
+      "month": 6
+    }}
+    6. Do not ask the user to provide Japanese text. Do it yourself.
+    7. Reply ONLY with JSON if complete and appropriate, no other text, no markdown code block.
+    """
+
+    entries = []
+
+    print(cert_question)
+    user_input = input("> ")
+    combined_answer = user_input.strip() + " "
+
+    if user_input.lower() in ["none", "なし"]:
+        print("\n✅ No certifications saved.\n")
+        return []
+
+    while True:
+        cert_data = None
+        retries = 0
+        max_retries = 5
+
+        while not cert_data and retries < max_retries:
+            prompt = validation_prompt_template.format(combined_answer=combined_answer.strip())
+
+            response = client.chat.completions.create(
+                model="gpt-4o",
+                messages=[
+                    {"role": "system", "content": "You are a helpful Japanese resume assistant."},
+                    {"role": "user", "content": prompt}
+                ]
+            )
+
+            gpt_reply = response.choices[0].message.content.strip()
+
+            print("\n=== GPT RAW REPLY ===")
+            print(gpt_reply)
+            print("=====================\n")
+
+            # clean markdown code block if present
+            if gpt_reply.startswith("```"):
+                gpt_reply = gpt_reply.replace("```json", "").replace("```", "").strip()
+
+            try:
+                cert_data = json.loads(gpt_reply)
+                print("\n✅ Certification entry saved.\n")
+            except json.JSONDecodeError:
+                print("\n⚠️ GPT did not return valid JSON. Please clarify:")
+                next_input = input("> ")
+                combined_answer += next_input.strip() + " "
+                retries += 1
+                continue
+
+        if not cert_data:
+            print("\n❌ Could not parse certification after multiple attempts. Skipping.\n")
+            break
+
+        entries.append(cert_data)
+
+        followup = input(
+            "Is there anything else you would like to add to your certifications section? (yes/no)\n> "
+        ).strip().lower()
+
+        if followup in ["no", "n"]:
+            print("\n✅ All certifications saved. Moving on!\n")
+            break
+        else:
+            print(cert_question)
+            next_cert = input("> ")
+            combined_answer = next_cert.strip() + " "  # reset for next block
+
+    return entries
+
+def collect_hobbies():
+    """
+    Collects hobbies/interests for a Japanese resume,
+    validates appropriateness, and translates to Japanese.
+    Returns a list of hobby strings in Japanese.
+    """
+
+    hobby_question = """
+    Please describe your hobbies or personal interests.
+    You can list several, separated by commas.
+    If you do not wish to include any, type 'none'.
+    """
+
+    validation_prompt_template = """
+    You are a Japanese resume assistant helping foreigners.
+    The user gave this hobby information:
+    "{combined_answer}"
+
+    Your task:
+    1. Split them into a list if there are multiple hobbies.
+    2. Check if each is appropriate for a Japanese rirekisho
+       (for example, common and acceptable hobbies: reading, sports, travel, cooking, music).
+       Inappropriate examples: sleeping, watching TikTok for 6 hours, doing nothing.
+    3. If any seem inappropriate, politely tell the user only those ones are not suitable
+       and ask for another.
+    4. If everything is correct, translate or phrase them naturally in Japanese,
+       using polite Japanese expressions if needed.
+    5. Finally, output JSON in this format:
+    {{
+      "hobbies": ["読書", "旅行", "音楽鑑賞"]
+    }}
+    6. Reply ONLY with JSON if complete and appropriate, no markdown code block.
+    """
+
+    print(hobby_question)
+    user_input = input("> ")
+    combined_answer = user_input.strip() + " "
+
+    hobbies_data = None
+    retries = 0
+    max_retries = 5
+
+    if user_input.lower() in ["none", "なし"]:
+        print("\n✅ No hobbies saved.\n")
+        return []
+
+    while not hobbies_data and retries < max_retries:
+        prompt = validation_prompt_template.format(combined_answer=combined_answer.strip())
+
+        response = client.chat.completions.create(
+            model="gpt-4o",
+            messages=[
+                {"role": "system", "content": "You are a helpful Japanese resume assistant."},
+                {"role": "user", "content": prompt}
+            ]
+        )
+
+        gpt_reply = response.choices[0].message.content.strip()
+
+        print("\n=== GPT RAW REPLY ===")
+        print(gpt_reply)
+        print("=====================\n")
+
+        # remove markdown fences if present
+        if gpt_reply.startswith("```"):
+            gpt_reply = gpt_reply.replace("```json", "").replace("```", "").strip()
+
+        try:
+            hobbies_data = json.loads(gpt_reply)
+            print("\n✅ Hobbies saved.\n")
+        except json.JSONDecodeError:
+            print("\n⚠️ GPT did not return valid JSON. Please clarify:")
+            next_input = input("> ")
+            combined_answer += next_input.strip() + " "
+            retries += 1
+            continue
+
+    if not hobbies_data:
+        print("\n❌ Could not parse hobbies after multiple attempts. Skipping.\n")
+        return []
+
+    return hobbies_data["hobbies"]
+
+def collect_motivation():
+    """
+    Collects the user's motivation for applying, in English,
+    validates and translates it to polite Japanese.
+    Returns a string in Japanese.
+    """
+
+    motivation_question = """
+    Please write a short statement about why you want this job or role.
+    What motivates you to apply? Write it in simple English.
+    """
+
+    validation_prompt_template = """
+    You are a Japanese resume assistant helping foreigners.
+    The user gave this motivation statement in english:
+    "{combined_answer}"
+
+    Your task:
+    1. Check if the motivation is appropriate for a Japanese resume and translate:
+       - Formal, no slang
+       - Polite
+       - Reasonable content (no jokes, no negativity)
+    2. If missing or inappropriate, politely ask for corrections.
+    3. If appropriate, rewrite it in polite Japanese suitable for a rirekisho.
+    4. Finally, reply only with the polished Japanese motivation string, no other text, no markdown.
+    """
+
+    print(motivation_question)
+    user_input = input("> ")
+    combined_answer = user_input.strip() + " "
+
+    motivation_japanese = None
+    retries = 0
+    max_retries = 5
+
+    while not motivation_japanese and retries < max_retries:
+        prompt = validation_prompt_template.format(combined_answer=combined_answer.strip())
+
+        response = client.chat.completions.create(
+            model="gpt-4o",
+            messages=[
+                {"role": "system", "content": "You are a helpful Japanese resume assistant."},
+                {"role": "user", "content": prompt}
+            ]
+        )
+
+        gpt_reply = response.choices[0].message.content.strip()
+
+        print("\n=== GPT RAW REPLY ===")
+        print(gpt_reply)
+        print("=====================\n")
+
+        # remove markdown fences if present
+        if gpt_reply.startswith("```"):
+            gpt_reply = gpt_reply.replace("```", "").strip()
+
+        # treat as short text rather than JSON
+        if len(gpt_reply) > 200:
+            print("\n⚠️ GPT gave a very long reply or follow-up question. Please clarify:")
+            next_input = input("> ")
+            combined_answer += next_input.strip() + " "
+            retries += 1
+        else:
+            print("\n✅ Motivation statement saved.\n")
+            motivation_japanese = gpt_reply
+
+    if not motivation_japanese:
+        print("\n❌ Could not reliably get a motivation statement after multiple attempts. Skipping.\n")
+        return ""
+
+    return motivation_japanese
+
+if __name__ == "__main__":
+    print("=== Japanese Resume Builder ===\n")
+
+    # collect data in order
+    name_data = collect_name_entry()
+    birth_data = collect_birthdate()
+    address_data = collect_address_entry()
+    phone_data = collect_phone_number()
+    education_data = collect_education_entries()
+    work_data = collect_work_entries()
+    cert_data = collect_certification_entries()
+    hobbies_data = collect_hobbies()
+    motivation = collect_motivation()
+
+    # structure all results
+    resume_data = {
+        "name": name_data,
+        "birthdate": birth_data,
+        "address": address_data,
+        "phone": phone_data,
+        "education": education_data,
+        "work_history": work_data,
+        "certifications": cert_data,
+        "hobbies": hobbies_data,
+        "motivation": motivation
+    }
+
+
+
+    print("\n=== FINAL DATA COLLECTED ===\n")
+    import pprint
+    pprint.pprint(resume_data, width=120)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+from openpyxl import load_workbook
+from datetime import datetime
+import os
+
+# build the absolute path to Downloads
+template_path = os.path.expanduser("~/Downloads/01_A4_format.xlsx")
+
+# load workbook
+try:
+    wb = load_workbook(template_path)
+    ws = wb.active
+except FileNotFoundError:
+    print("❌ Template file not found. Please check the path or move the file to the correct location.")
+    exit(1)
+
+# your data example
+final_data = resume_data
+
+# name
+ws["C6"] = final_data["name"]["katakana"]
+ws["C9"] = final_data["name"]["katakana"]
+
+# birthdate + gender
+ws["B14"] = final_data["birthdate"]["formatted"]
+ws["F15"] = "男"  # placeholder
+ws["E3"] = datetime.today().strftime("%Y/%m/%d")
+
+# address
+ws["C16"] = final_data["name"]["katakana"]  # this is a placeholder for address furigana
+ws["C19"] = final_data["address"]["postal_code"]
+ws["C21"] = final_data["address"]["address"]
+ws["I16"] = final_data["phone"]
+
+# education + work combined
+history_entries = []
+for edu in final_data["education"]:
+    label = f"{edu['school_name']} / {edu['major']}"
+    start = f"{edu['start_year']}年{edu['start_month']}月"
+    end = (
+        f"{edu['end_year']}年{edu['end_month']}月"
+        if edu['end_year']
+        else "現在"
+    )
+    history_entries.append((start, end, label))
+
+for work in final_data["work_history"]:
+    label = f"{work['company_name']} / {work['position']}"
+    start = f"{work['start_year']}年{work['start_month']}月"
+    end = (
+        f"{work['end_year']}年{work['end_month']}月"
+        if work['end_year']
+        else "現在"
+    )
+    history_entries.append((start, end, label))
+
+row = 38
+for entry in history_entries:
+    year_str, month_str = entry[0].split("年")
+    ws[f"B{row}"] = year_str
+    ws[f"C{row}"] = month_str.replace("月", "")
+    ws[f"D{row}"] = entry[2]
+    row += 3
+
+# certifications
+row = 25
+for cert in final_data["certifications"]:
+    ws[f"N{row}"] = cert["certification_name"]
+    ws[f"M{row}"] = cert["month"]
+    ws[f"L{row}"] = cert["year"]
+    row += 3
+
+# hobbies
+ws["L47"] = "・".join(final_data["hobbies"])
+
+# motivation
+ws["L71"] = final_data["motivation"]
+
+# save
+output_path = os.path.expanduser("~/Documents/output_rirekisho.xlsx")
+wb.save(output_path)
+print(f"✅ Successfully saved to {output_path}")
