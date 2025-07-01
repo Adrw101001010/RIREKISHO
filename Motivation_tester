@@ -1,0 +1,78 @@
+from openai import OpenAI
+import os
+import json
+
+# set your API key here
+os.environ["OPENAI_API_KEY"] = "u-lIcAQuqluFcVrR5HRrjhSBX5GwakU0TPl0IEWFmEhq59z9KgZX2kycESAA"
+client = OpenAI()
+
+def collect_motivation_interests():
+    """
+    Collects the user's motivation, hobbies, and appeal points in one block,
+    then polishes them repeatedly to match a Japanese rirekisho style.
+    """
+
+    motivation_question = """
+Please tell me about:
+- your motivation for applying
+- any personal hobbies or interests
+- your strengths or appeal points
+
+Write them in simple English, in one block.
+"""
+
+    # polished example for the prompt
+    ideal_japanese_example = """
+私は、これまでに培った国際ビジネスやITスキルを活かし、御社の成長に貢献したいと考えております。
+特に、英語と日本語を活かしたコミュニケーション能力で円滑な業務推進に寄与できると自負しております。
+趣味としては読書やスポーツがあり、幅広い知識と体力を活かして新しい課題にも前向きに挑戦できます。
+今後も自己研鑽を続け、さらに成長していきたいと考えています。
+"""
+
+    polish_prompt_template = """
+You are a professional Japanese resume writer specializing in perfecting
+the "志望動機・自己PR・趣味特技" section.
+
+This rough draft was given to you:
+"{user_text}"
+
+Please transform the rough  into a highly-polished,
+professional Japanese text that matches the following ideal example: "{ideal_example}"
+
+
+
+Return only the final polished Japanese text, with no other comments or markdown.
+"""
+
+    print(motivation_question)
+    user_input = input("> ").strip()
+
+    # Step 1 — do initial polish
+    current_text = user_input
+    for polish_round in range(3):
+        prompt = polish_prompt_template.format(
+            user_text=current_text.strip(),
+            ideal_example=ideal_japanese_example.strip()
+        )
+        response = client.chat.completions.create(
+            model="gpt-4o",
+            messages=[
+                {"role": "system", "content": "You are a professional Japanese resume writer."},
+                {"role": "user", "content": prompt}
+            ]
+        )
+        polished = response.choices[0].message.content.strip()
+        print(f"\n=== POLISH ROUND {polish_round+1} ===")
+        print(polished)
+        print("===========================\n")
+        current_text = polished
+
+    print("\n✅ Final motivation/appeal block saved.\n")
+    return current_text
+
+
+# test runner
+if __name__ == "__main__":
+    final = collect_motivation_interests()
+    print("\n=== FINAL POLISHED TEXT ===")
+    print(final)
