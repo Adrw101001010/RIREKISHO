@@ -1,0 +1,142 @@
+from openai import OpenAI
+import os
+import json
+
+# set your API key here
+os.environ["OPENAI_API_KEY"] = "8TOR5XTeT3BlbkFJgRIxSc-mfCDgs2u-lIcAQuqluFcVrR5HRrjhSBX5GwakU0TPl0IEWFmEhq59z9KgZX2kycESAA"
+client = OpenAI()
+
+def collect_work_entries():
+    """
+    Collects work history entries, allowing clarifying questions,
+    and resetting the question-check on every turn.
+    """
+
+    work_question = """
+Please describe your work history. Include:
+- company name
+- position or role
+- when you started (year/month)
+- when you ended (year/month, or say still working)
+"""
+
+    validation_prompt_template = """
+You are a Japanese resume assistant helping foreigners fill out a rirekisho.
+
+The user provided:
+"{combined_answer}"
+
+Please:
+1. Check if it includes:
+   - company name
+   - position or role
+   - year and month of entry
+   - year and month of exit (or say still working)
+2. If anything is missing, politely ask ONLY about the missing fields.
+3. If and ONLY IF company name, role, year and month of entry, and year and month of exit (or still working) are ALL INCLUDED, translate or transliterate to Japanese and output JSON in this exact formatting:
+{{
+  "company_name": "Japanese company name",
+  "position": "Japanese job title",
+  "start_year": 2021,
+  "start_month": 4,
+  "end_year": 2024,
+  "end_month": 3
+}}
+4. Never ask the user for Japanese, do it yourself.
+5. Reply ONLY with JSON, no markdown or other text.
+"""
+
+    entries = []
+    combined_answer = ""
+
+    print(work_question)
+
+    while True:
+        work_data = None
+
+        while not work_data:
+            user_input_is_question = False  # reset each turn
+            user_input = input("> ").strip()
+
+            # question check
+            question_check_prompt = f"""
+Is this user input a question? Answer only 'yes' or 'no':
+"{user_input}"
+"""
+            check_response = client.chat.completions.create(
+                model="gpt-4o",
+                messages=[
+                    {"role": "system", "content": "You are a helpful Japanese resume assistant."},
+                    {"role": "user", "content": question_check_prompt}
+                ]
+            )
+            is_question = check_response.choices[0].message.content.strip().lower()
+
+            if is_question.startswith("yes"):
+                user_input_is_question = True
+                # answer the question
+                clarify_prompt = f"""
+You are a Japanese resume assistant. The user asked:
+"{user_input}"
+
+Please answer politely in simple English.
+"""
+                clarify_response = client.chat.completions.create(
+                    model="gpt-4o",
+                    messages=[
+                        {"role": "system", "content": "You are a helpful Japanese resume assistant."},
+                        {"role": "user", "content": clarify_prompt}
+                    ]
+                )
+                print("\nGPT:", clarify_response.choices[0].message.content.strip())
+
+                # do not add question to combined
+            else:
+                combined_answer += user_input + " "
+
+            # validate current combined
+            prompt = validation_prompt_template.format(
+                combined_answer=combined_answer.strip()
+            )
+
+            response = client.chat.completions.create(
+                model="gpt-4o",
+                messages=[
+                    {"role": "system", "content": "You are a helpful Japanese resume assistant."},
+                    {"role": "user", "content": prompt}
+                ]
+            )
+            gpt_reply = response.choices[0].message.content.strip()
+
+            print("\n=== GPT RAW REPLY ===")
+            print(gpt_reply)
+            print("=====================\n")
+
+            if gpt_reply.startswith("```"):
+                gpt_reply = gpt_reply.replace("```json", "").replace("```", "").strip()
+
+            try:
+                work_data = json.loads(gpt_reply)
+                print("\n✅ Work history entry saved.\n")
+            except json.JSONDecodeError:
+                print("\n⚠️ GPT could not parse your information. Please clarify:")
+                continue
+
+        entries.append(work_data)
+
+        followup = input(
+            "Is there anything else you would like to add to your work history section? (yes/no)\n> "
+        ).strip().lower()
+        if followup in ["no", "n"]:
+            print("\n✅ All work history entries saved. Moving on!\n")
+            break
+        else:
+            print(work_question)
+            combined_answer = ""  # reset for next block
+
+    return entries
+
+if __name__ == "__main__":
+    results = collect_work_entries()
+    print("\n=== FINAL WORK HISTORY DATA ===")
+    print(json.dumps(results, indent=2, ensure_ascii=False))
