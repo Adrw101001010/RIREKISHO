@@ -101,10 +101,9 @@ Please answer politely in simple English, no additional prompts.
                 )
                 print(f"\nGPT: {clarify_response.choices[0].message.content.strip()}")
 
-                # after answering, continue to validation on current combined_answer
-                # do NOT add question to combined_answer
+                # do NOT add the question to combined_answer, just continue with validation
             else:
-                # treat as data
+                # treat as data and add it to the combined_answer
                 combined_answer += user_input + " "
 
             # always re-run validation on current combined_answer
@@ -154,7 +153,6 @@ Please answer politely in simple English, no additional prompts.
             combined_answer = ""  # clear for next block
 
     return entries
-
 
 
 def collect_name_entry():
