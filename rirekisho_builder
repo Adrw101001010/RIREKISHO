@@ -3,44 +3,37 @@ import os
 import json
 
 # replace with your actual key later
-os.environ["OPENAI_API_KEY"] = "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"
+os.environ["OPENAI_API_KEY"] = "ADD UR OWN BOI"
 client = OpenAI()
 
 def collect_education_entries():
     """
-    Handles collecting education history entries interactively,
-    with clarifying question handling AND
-    guaranteed immediate validation after every answer.
+    Collects education entries, allowing user clarifying questions,
+    and resetting the question-check on every turn.
     """
 
     education_question = """
-    Please describe your education history. Include:
-    - school name
-    - degree or major
-    - when you started (year/month)
-    - when you graduated (year/month, or say still attending)
-    """
+Please describe your education history. Include:
+- school name
+- degree or major
+- when you started (year/month)
+- when you graduated (year/month, or say still attending)
+"""
 
     validation_prompt_template = """
 You are a Japanese resume assistant helping foreigners fill out a rirekisho.
 
-The user has provided the following education information so far:
+The user provided:
 "{combined_answer}"
 
-Your task:
-1. Check if the following are present:
+Please:
+1. Check if it includes:
    - school name
    - major
    - year and month of entry
    - year and month of graduation (or say still attending)
-
-2. If any of these are missing, politely ask ONLY about the missing element, in simple English.
-   Do not repeat fields already included.
-
-3. If everything is complete, then:
-   - translate or transliterate the school name to Japanese
-   - translate or transliterate the major to Japanese
-   - output JSON in this exact format:
+2. If anything is missing, politely ask ONLY about the missing fields.
+3. If and ONLY IF school name, major, year and month of entry, and year and month of graduation (or say still attending) are ALL INCLUDED, translate or transliterate to Japanese and output JSON in this exact formatting:
 {{
   "school_name": "Japanese name",
   "major": "Japanese name",
@@ -49,10 +42,8 @@ Your task:
   "end_year": 2027,
   "end_month": 3
 }}
-
-4. Never ask the user to provide Japanese text, generate it yourself.
-
-5. Only output JSON if the answer is fully complete, no other text, no markdown code block.
+4. Never ask the user for Japanese, do it yourself.
+5. Reply ONLY with JSON, no markdown or other text.
 """
 
     entries = []
@@ -62,17 +53,16 @@ Your task:
 
     while True:
         education_data = None
-        retries = 0
-        max_retries = 5
 
-        while not education_data and retries < max_retries:
+        while not education_data:
+            # reset question flag each time
+            user_input_is_question = False
 
             user_input = input("> ").strip()
 
-            # check if it's a clarifying question
+            # check if user input is a question
             question_check_prompt = f"""
-Is this user input a clarifying question about what to include or how to write the education section?
-Answer only 'yes' or 'no':
+Is this user input a question? Answer only 'yes' or 'no':
 "{user_input}"
 """
             check_response = client.chat.completions.create(
@@ -82,15 +72,16 @@ Answer only 'yes' or 'no':
                     {"role": "user", "content": question_check_prompt}
                 ]
             )
-            is_question = check_response.choices[0].message.content.lower().strip()
+            is_question = check_response.choices[0].message.content.strip().lower()
 
             if is_question.startswith("yes"):
-                # answer politely
+                user_input_is_question = True
+                # ANSWER THE QUESTION AS A RIREKISHO HELPER
                 clarify_prompt = f"""
-The user asked:
+You are a Japanese resume assistant. The user asked:
 "{user_input}"
 
-Please answer politely in simple English, no additional prompts.
+Please answer politely in simple English.
 """
                 clarify_response = client.chat.completions.create(
                     model="gpt-4o",
@@ -99,15 +90,17 @@ Please answer politely in simple English, no additional prompts.
                         {"role": "user", "content": clarify_prompt}
                     ]
                 )
-                print(f"\nGPT: {clarify_response.choices[0].message.content.strip()}")
+                print("\nGPT:", clarify_response.choices[0].message.content.strip())
 
-                # do NOT add the question to combined_answer, just continue with validation
+                # do not change combined_answer
             else:
-                # treat as data and add it to the combined_answer
+                user_input_is_question = False
                 combined_answer += user_input + " "
 
-            # always re-run validation on current combined_answer
-            prompt = validation_prompt_template.format(combined_answer=combined_answer.strip())
+            # run validation on current combined_answer
+            prompt = validation_prompt_template.format(
+                combined_answer=combined_answer.strip()
+            )
 
             response = client.chat.completions.create(
                 model="gpt-4o",
@@ -118,12 +111,10 @@ Please answer politely in simple English, no additional prompts.
             )
 
             gpt_reply = response.choices[0].message.content.strip()
-
             print("\n=== GPT RAW REPLY ===")
             print(gpt_reply)
             print("=====================\n")
 
-            # remove code block if needed
             if gpt_reply.startswith("```"):
                 gpt_reply = gpt_reply.replace("```json", "").replace("```", "").strip()
 
@@ -131,29 +122,22 @@ Please answer politely in simple English, no additional prompts.
                 education_data = json.loads(gpt_reply)
                 print("\n✅ Education entry saved.\n")
             except json.JSONDecodeError:
-                print(f"\nGPT: {gpt_reply}")
-                retries += 1
+                print("\n⚠️ GPT could not parse your information. Please clarify:")
                 continue
-
-        if not education_data:
-            print("\n❌ Could not parse education after multiple attempts. Skipping.\n")
-            break
 
         entries.append(education_data)
 
         followup = input(
             "Is there anything else you would like to add to your education section? (yes/no)\n> "
         ).strip().lower()
-
         if followup in ["no", "n"]:
             print("\n✅ All education entries saved. Moving on!\n")
             break
         else:
             print(education_question)
-            combined_answer = ""  # clear for next block
+            combined_answer = ""  # reset for next block
 
     return entries
-
 
 def collect_name_entry():
     """
@@ -627,7 +611,7 @@ def collect_birthdate():
 def collect_certification_entries():
     """
     Collects certifications/licenses interactively with their acquisition dates.
-    Returns a list of certification dictionaries:
+    Returns a list of certification dictionaries.
     [
       {
         "certification_name": "普通自動車免許",
@@ -646,30 +630,31 @@ def collect_certification_entries():
     """
 
     validation_prompt_template = """
-    You are a Japanese resume assistant helping foreigners.
-    The user gave this certification information:
-    "{combined_answer}"
+You are a Japanese resume assistant helping foreigners.
 
-    Your task:
-    1. Check if it includes:
-       - a certification or license name
-       - the year and month obtained
-    2. Confirm if this is a legitimate, recognized certification suitable for a Japanese rirekisho:
-       - For example, valid: JLPT, TOEIC, Driver's License, CPA, nursing license
-       - Invalid examples: SAT scores, school GPA, personal club awards
-       - If it seems invalid, politely tell the user this is not a recognized certification and ask for another.
-    3. If any parts are missing, politely ask ONLY about the missing element in simple English.
-    4. If everything is correct and appropriate, then YOU should:
-       - translate or transliterate the certification name to Japanese on your own
-    5. Finally, output JSON in this exact format:
-    {{
-      "certification_name": "Japanese name",
-      "year": 2023,
-      "month": 6
-    }}
-    6. Do not ask the user to provide Japanese text. Do it yourself.
-    7. Reply ONLY with JSON if complete and appropriate, no other text, no markdown code block.
-    """
+The user has provided the following certification information so far:
+"{combined_answer}"
+
+Your task:
+1. Check if it includes:
+   - the name of the certification or license
+   - the year and month obtained
+2. Confirm if this is a legitimate, recognized certification suitable for a Japanese rirekisho.
+   Valid examples: JLPT, TOEIC, Driver's License, CPA, nursing license
+   Invalid examples: SAT scores, GPA, personal club awards
+3. If anything is missing (especially year/month of acquisition), politely ask ONLY about the missing element, in simple English.
+4. If the certification looks invalid for a rirekisho, politely say so and ask for another.
+5. If everything is correct and appropriate, translate or transliterate the certification name to Japanese on your own.
+6. Finally, output JSON in this exact format:
+{{
+  "certification_name": "Japanese name",
+  "year": 2023,
+  "month": 6
+}}
+7. Never output JSON if year/month is missing — ask for it instead.
+8. Do not ask the user to provide Japanese text. Generate it yourself.
+9. Reply with ONLY JSON if complete, no other text, no markdown code block.
+"""
 
     entries = []
 
