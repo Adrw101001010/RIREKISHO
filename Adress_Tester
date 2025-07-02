@@ -1,0 +1,129 @@
+from openai import OpenAI
+import os
+import json
+import requests
+os.environ["OPENAI_API_KEY"] = "cESAA"
+client = OpenAI()
+def get_address_from_postal(postal_code):
+    """
+    Takes a 7-digit postal code as a string (no hyphen),
+    returns a single Japanese-style address string with postal code,
+    or None if not found.
+    """
+    url = f"http://zipcloud.ibsnet.co.jp/api/search?zipcode={postal_code}"
+    response = requests.get(url)
+    data = response.json()
+    if data["results"]:
+        result = data["results"][0]
+        prefecture = result["address1"]
+        city = result["address2"]
+        town = result["address3"]
+        formatted_postal = f"{postal_code[:3]}-{postal_code[3:]}"
+        full_address = f"{prefecture}{city}{town} {formatted_postal}"
+        return full_address
+    else:
+        return None
+
+
+def get_address_from_postal(postal_code):
+    """
+    Takes a 7-digit postal code as a string (no hyphen),
+    returns a list with a partial Japanese-style address,
+    or None if not found.
+    """
+    url = f"http://zipcloud.ibsnet.co.jp/api/search?zipcode={postal_code}"
+    response = requests.get(url)
+    data = response.json()
+    if data["results"]:
+        result = data["results"][0]
+        prefecture = result["address1"]
+        city = result["address2"]
+        town = result["address3"]
+        partial = f"{prefecture}{city}{town}"
+        return [partial]
+    else:
+        return None
+
+
+def collect_address_entry():
+    """
+    Collects the user's address for a Japanese resume:
+    returns a dict with:
+    {
+      "address": "東京都世田谷区太子堂2-14-6",
+      "postal_code": "154-0004"
+    }
+    """
+
+    # 1️keep asking postal code until valid
+    while True:
+        postal_code = input("Enter your 7-digit postal code (no hyphen): ").strip().replace("-", "")
+        if len(postal_code) != 7 or not postal_code.isdigit():
+            print("Please enter a 7-digit number without hyphen.")
+            continue
+
+        partial_address = get_address_from_postal(postal_code)
+        if partial_address:
+            print(f"→ Found: {partial_address[0]}")
+            formatted_postal = f"{postal_code[:3]}-{postal_code[3:]}"
+            break
+        else:
+            print("Postal code not found, please try again.")
+
+    address_data = None
+
+    validation_prompt_template = """
+You are a Japanese resume assistant. The user gave this address:
+"{combined_answer}"
+
+Your task:
+1. Confirm if it has a complete Japanese adress in the following format: "東京都世田谷区太子堂2-14-6".
+Make sure the adress includes the following:
+   - prefecture
+   - city or ward
+   - block and street number (like 2-14-6)
+2. If any of these are missing, clearly ask ONLY for the missing part in simple English.
+3. When everything is present, reply in JSON only (no markdown) in this exact format:
+{{
+  "address": "東京都世田谷区太子堂2-14-6",
+  "postal_code": "154-0004"
+}}
+If incomplete, do not output JSON yet.
+"""
+
+    while not address_data:
+        # rebuild the combined answer each time
+        combined_answer = " ".join(partial_address) + f" {formatted_postal}"
+        print("partial adress:", partial_address)
+
+        prompt = validation_prompt_template.format(combined_answer=combined_answer)
+
+        response = client.chat.completions.create(
+            model="gpt-4o",
+            messages=[
+                {"role": "system", "content": "You are a helpful Japanese resume assistant."},
+                {"role": "user", "content": prompt}
+            ]
+        )
+
+        gpt_reply = response.choices[0].message.content.strip()
+        
+        print(gpt_reply)
+        
+
+        try:
+            if gpt_reply.startswith("```"):
+                gpt_reply = gpt_reply.replace("```json", "").replace("```", "").strip()
+            address_data = json.loads(gpt_reply)
+            print("\n✅ Address saved.\n")
+        except json.JSONDecodeError:
+            next_input = input("> ").strip()
+            partial_address.append(next_input)
+            continue
+
+    return address_data
+
+
+
+adress = collect_address_entry()
+print(adress)
