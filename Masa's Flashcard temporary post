@@ -1,0 +1,237 @@
+import os
+import random
+from datetime import datetime
+from tkinter import *
+from tkinter import messagebox, simpledialog, ttk
+
+# Load flashcards from file
+def load_flashcard(filename):
+    flashcard_dict = {}
+    if os.path.isfile(filename):
+        with open(filename, "r") as f:
+            lines = f.readlines()
+            for i in range(0, len(lines), 2):
+                if i + 1 < len(lines):
+                    question_line = lines[i].strip()
+                    answer_line = lines[i+1].strip()
+                    if question_line.startswith("Question: ") and answer_line.startswith("Answer: "):
+                        question = question_line[10:]
+                        answer = answer_line[8:]
+                        flashcard_dict[question] = answer
+    return flashcard_dict
+
+# Store flashcard to file
+def stores_flashcard(category, question, answer):
+    filename = f"category_{category}.txt"
+    with open(filename, "a") as f:
+        f.write(f"Question: {question}\nAnswer: {answer}\n")
+
+# Save quiz score
+def save_score(category, score):
+    score_file = f"{category}_score.txt"
+    with open(score_file, "a") as f:
+        f.write(f"{datetime.now()}: Score: {score:.2f}\n")
+
+# Get list of categories
+def get_all_categories():
+    return [f[9:-4] for f in os.listdir() if f.startswith("category_") and f.endswith(".txt")]
+
+# Calculate average score from last 7
+def load_score(category=None):
+    if not category:
+        categories = get_all_categories()
+        if not categories:
+            messagebox.showinfo("No Categories", "No score records found.")
+            return
+        win = Toplevel(root)
+        win.title("Select Category")
+        Label(win, text="Choose a category:").pack()
+        selected = StringVar(win)
+        selected.set(categories[0])
+        dropdown = OptionMenu(win, selected, *categories)
+        dropdown.pack()
+
+        def check_selected():
+            win.destroy()
+            load_score(selected.get())
+
+        Button(win, text="Check Score", command=check_selected).pack(pady=5)
+        return
+
+    filename = f"{category}_score.txt"
+    if not os.path.isfile(filename):
+        messagebox.showinfo("Error", "No scores recorded for this category.")
+        return
+    with open(filename, "r") as r:
+        lines = r.readlines()[-7:]
+        scores = []
+        for line in lines:
+            try:
+                score = float(line.strip().split("Score: ")[-1])
+                scores.append(score)
+            except:
+                continue
+        if scores:
+            avg_score = round(sum(scores) / len(scores), 2)
+            messagebox.showinfo("Average Score", f"Your average score over last {len(scores)} attempts is {avg_score}%")
+        else:
+            messagebox.showinfo("Info", "No valid scores to average.")
+
+# Add flashcard
+
+def add_flashcard():
+    categories = get_all_categories()
+
+    win = Toplevel(root)
+    win.title("Add Flashcard")
+
+    Label(win, text="Select category:").pack()
+    selected = StringVar(win)
+    if categories:
+        selected.set(categories[0])
+    dropdown = OptionMenu(win, selected, *categories)
+    dropdown.pack()
+
+    Label(win, text="Or enter new category:").pack()
+    new_category_entry = Entry(win)
+    new_category_entry.pack()
+
+    Label(win, text="Question:").pack()
+    question_entry = Entry(win, width=50)
+    question_entry.pack()
+
+    Label(win, text="Answer:").pack()
+    answer_entry = Entry(win, width=50)
+    answer_entry.pack()
+
+    def submit():
+        category = new_category_entry.get().strip() or selected.get()
+        question = question_entry.get().strip()
+        answer = answer_entry.get().strip()
+        if category and question and answer:
+            stores_flashcard(category, question, answer)
+            messagebox.showinfo("Success", "Flashcard added successfully.")
+            win.destroy()
+        else:
+            messagebox.showerror("Error", "All fields are required.")
+
+    Button(win, text="Add Flashcard", command=submit).pack(pady=10)
+
+# Quiz mode
+def quiz_mode():
+    categories = get_all_categories()
+    if not categories:
+        messagebox.showinfo("No Categories", "No flashcard categories found.")
+        return
+    win = Toplevel(root)
+    win.title("Select Category")
+    Label(win, text="Choose a category:").pack()
+    selected = StringVar(win)
+    selected.set(categories[0])
+    dropdown = OptionMenu(win, selected, *categories)
+    dropdown.pack()
+
+    def start_quiz():
+        category = selected.get()
+        filename = f"category_{category}.txt"
+        flashcards = load_flashcard(filename)
+        if not flashcards:
+            messagebox.showinfo("Empty", "This category has no flashcards.")
+            win.destroy()
+            return
+
+        score = 0
+        total = 0
+        continue_quiz = True
+        while continue_quiz and flashcards:
+            question = random.choice(list(flashcards.keys()))
+            user_answer = simpledialog.askstring("Quiz", f"{question}")
+            correct_answer = flashcards[question].lower()
+            if user_answer and user_answer.lower() == correct_answer:
+                messagebox.showinfo("Result", "Correct!")
+                score += 1
+            else:
+                messagebox.showinfo("Result", f"Incorrect. Correct answer was: {correct_answer}")
+            total += 1
+            more = messagebox.askyesno("Continue?", "Do you want to continue the quiz?")
+            if not more:
+                continue_quiz = False
+
+        if total:
+            percent = round((score / total) * 100, 2)
+            save_score(category, percent)
+            messagebox.showinfo("Quiz Over", f"Your score: {percent}%. Correct: {score}, Incorrect: {total - score}")
+        win.destroy()
+
+    Button(win, text="Start Quiz", command=start_quiz).pack()
+
+# View, Edit, or Delete flashcards
+def check_flashcards():
+    categories = get_all_categories()
+    if not categories:
+        messagebox.showinfo("No Categories", "No flashcards found.")
+        return
+
+    win = Toplevel(root)
+    win.title("View Flashcards")
+    Label(win, text="Choose a category:").pack()
+    selected = StringVar(win)
+    selected.set(categories[0])
+    OptionMenu(win, selected, *categories).pack()
+
+    def display_cards():
+        category = selected.get()
+        flashcards = load_flashcard(f"category_{category}.txt")
+        if not flashcards:
+            messagebox.showinfo("Empty", "No flashcards in this category.")
+            return
+
+        card_win = Toplevel(win)
+        card_win.title(f"Flashcards - {category}")
+
+        for question, answer in flashcards.items():
+            frame = Frame(card_win, borderwidth=1, relief="solid", padx=10, pady=5)
+            frame.pack(fill="x", pady=5)
+            Label(frame, text=f"Q: {question}", anchor="w").pack(fill="x")
+            Label(frame, text=f"A: {answer}", anchor="w").pack(fill="x")
+
+            def delete_flashcard(q=question):
+                del flashcards[q]
+                with open(f"category_{category}.txt", "w") as f:
+                    for qx, ax in flashcards.items():
+                        f.write(f"Question: {qx}\nAnswer: {ax}\n")
+                messagebox.showinfo("Deleted", f"Deleted question: {q}")
+                card_win.destroy()
+                display_cards()
+
+            def edit_flashcard(q=question):
+                new_q = simpledialog.askstring("Edit", "Enter new question:", initialvalue=q)
+                new_a = simpledialog.askstring("Edit", "Enter new answer:", initialvalue=flashcards[q])
+                if new_q and new_a:
+                    del flashcards[q]
+                    flashcards[new_q] = new_a
+                    with open(f"category_{category}.txt", "w") as f:
+                        for qx, ax in flashcards.items():
+                            f.write(f"Question: {qx}\nAnswer: {ax}\n")
+                    messagebox.showinfo("Edited", "Flashcard updated successfully.")
+                    card_win.destroy()
+                    display_cards()
+
+            Button(frame, text="Edit", command=lambda q=question: edit_flashcard(q)).pack(side="left", padx=5)
+            Button(frame, text="Delete", command=lambda q=question: delete_flashcard(q)).pack(side="right", padx=5)
+
+    Button(win, text="View Cards", command=display_cards).pack(pady=5)
+
+# GUI Setup
+root = Tk()
+root.title("Flashcard Quiz App")
+root.geometry("400x400")
+
+Label(root, text="Flashcard and Quiz App", font=("Helvetica", 16, "bold")).pack(pady=10)
+Button(root, text="Add Flashcard", command=add_flashcard, width=30).pack(pady=5)
+Button(root, text="Start Quiz", command=quiz_mode, width=30).pack(pady=5)
+Button(root, text="View/Edit/Delete Flashcards", command=check_flashcards, width=30).pack(pady=5)
+Button(root, text="Check Average Score", command=load_score, width=30).pack(pady=5)
+Button(root, text="Exit", command=root.quit, width=30).pack(pady=20)
+
+root.mainloop()
