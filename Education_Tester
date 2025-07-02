@@ -3,7 +3,7 @@ import os
 import json
 
 # your API key
-os.environ["OPENAI_API_KEY"] = "T4MOVi6jStANrf0M8TOR5XTeT3BlbkFJgRIxSc-mfCDgs2u-lIcAQuqluFcVrR5HRrjhSBX5GwakU0TPl0IEWFmEhq59z9KgZX2kycESAA"
+os.environ["OPENAI_API_KEY"] = ""
 client = OpenAI()
 
 def collect_education_entries():
@@ -35,8 +35,8 @@ Please:
 2. If anything is missing, politely ask in English ONLY about the missing fields.
 3. If and ONLY IF school name, major, year and month of enrollment, and year and month of graduation (or say still attending) are ALL INCLUDED, translate or transliterate to Japanese and output JSON in this exact formatting:
 {{
-  "school_name": "Japanese name",
-  "major": "Japanese name",
+  "school_name": "学校名",
+  "major": "専攻名",
   "start_year": 2023,
   "start_month": 4,
   "end_year": 2027,
@@ -95,7 +95,7 @@ Please answer politely in simple English.
                 # do not change combined_answer
             else:
                 user_input_is_question = False
-                combined_answer += user_input + " "
+                combined_answer += user_input + "  ,"
 
             # run validation on current combined_answer
             prompt = validation_prompt_template.format(
@@ -120,11 +120,18 @@ Please answer politely in simple English.
 
             try:
                 education_data = json.loads(gpt_reply)
+
+                majorCheck = education_data["major"]
+
+                if not (majorCheck.endswith("学部") or majorCheck.endswith("専攻")): # Removing major if high school is entered
+                    education_data["major"] = ""
+
                 print("\n✅ Education entry saved.\n")
+
             except json.JSONDecodeError:
                 
                 continue
-
+                   
         entries.append(education_data)
 
         followup = input(
