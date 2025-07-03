@@ -125,5 +125,5 @@ If incomplete, do not output JSON yet.
 
 
 
-adress = collect_address_entry()
-print(adress)
+address = collect_address_entry()
+print(address)
