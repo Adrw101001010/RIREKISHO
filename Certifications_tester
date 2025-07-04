@@ -2,27 +2,26 @@ import os
 import json
 from openai import OpenAI
 
-# put your real key here
-os.environ["OPENAI_API_KEY"] = "lbkFJgRIxSc-mfCDgs2u-lIcAQuqluFcVrR5HRrjhSBX5GwakU0TPl0IEWFmEhq59z9KgZX2kycESAA"
+# your API key
+os.environ["OPENAI_API_KEY"] = "uFcVrR5HRrjhSBX5GwakU0TPl0IEWFmEhq59z9KgZX2kycESAA"
 client = OpenAI()
 
 def collect_certification_entries():
     """
     Collects certifications/licenses interactively with their acquisition dates.
-    Returns a list of certification dictionaries.
     """
 
     cert_question = """
-    Please describe any certifications or licenses you have. Include:
-    - certification or license name
-    - when you obtained it (year/month)
-    If you have none, type 'none'.
-    """
+Please describe any certifications or licenses you have. Include:
+- certification or license name
+- when you obtained it (year/month)
+If you have none, type 'none'.
+"""
 
     validation_prompt_template = """
 You are a Japanese resume assistant helping foreigners.
 
-The user has provided the following certification information so far:
+The user provided:
 "{combined_answer}"
 
 Your task:
@@ -32,7 +31,7 @@ Your task:
 2. Confirm if this is a legitimate, recognized certification suitable for a Japanese rirekisho.
    Valid examples: JLPT, TOEIC, Driver's License, CPA, nursing license
    Invalid examples: SAT scores, GPA, personal club awards
-3. If anything is missing (especially year/month of acquisition), politely ask ONLY about the missing element, in simple English.
+3. If anything is missing (especially year/month of acquisition), politely ask ONLY about the missing element in simple English.
 4. If the certification looks invalid for a rirekisho, politely say so and ask for another.
 5. If everything is correct and appropriate, translate or transliterate the certification name to Japanese on your own.
 6. Finally, output JSON in this exact format:
@@ -49,20 +48,22 @@ Your task:
     entries = []
 
     print(cert_question)
-    user_input = input("> ")
-    combined_answer = user_input.strip() + " "
+    combined_answer = []
 
-    if user_input.lower() in ["none", "なし"]:
+    first_input = input("> ").strip()
+    if first_input.lower() in ["none", "なし"]:
         print("\n✅ No certifications saved.\n")
         return []
 
+    combined_answer.append(first_input + " ,")
+
     while True:
         cert_data = None
-        retries = 0
-        max_retries = 5
 
-        while not cert_data and retries < max_retries:
-            prompt = validation_prompt_template.format(combined_answer=combined_answer.strip())
+        while not cert_data:
+            prompt = validation_prompt_template.format(
+                combined_answer=" ".join(combined_answer)
+            )
 
             response = client.chat.completions.create(
                 model="gpt-4o",
@@ -71,14 +72,9 @@ Your task:
                     {"role": "user", "content": prompt}
                 ]
             )
-
             gpt_reply = response.choices[0].message.content.strip()
-
-            print("\n=== GPT RAW REPLY ===")
             print(gpt_reply)
-            print("=====================\n")
 
-            # clean markdown code block if present
             if gpt_reply.startswith("```"):
                 gpt_reply = gpt_reply.replace("```json", "").replace("```", "").strip()
 
@@ -86,17 +82,34 @@ Your task:
                 cert_data = json.loads(gpt_reply)
                 print("\n✅ Certification entry saved.\n")
             except json.JSONDecodeError:
-                print("\n⚠️ GPT did not return valid JSON. Please clarify:")
-                next_input = input("> ")
-                combined_answer += next_input.strip() + " "
-                retries += 1
+                next_input = input("> ").strip()
+                combined_answer.append(next_input + " ,")
                 continue
 
-        if not cert_data:
-            print("\n❌ Could not parse certification after multiple attempts. Skipping.\n")
-            break
+        while True:
+            print("Would you like to change any of the following?")
+            print(f"1: Certification name → {cert_data['certification_name']}")
+            print(f"2: Year → {cert_data['year']}")
+            print(f"3: Month → {cert_data['month']}")
+            print(f"4: Change nothing")
 
-        entries.append(cert_data)
+            user_choice = input("Enter a number: ").strip()
+            if user_choice.isdigit():
+                choice_num = int(user_choice)
+                if choice_num == 1:
+                    cert_data["certification_name"] = input("New certification name: ").strip()
+                elif choice_num == 2:
+                    cert_data["year"] = int(input("New year of acquisition: ").strip())
+                elif choice_num == 3:
+                    cert_data["month"] = int(input("New month of acquisition: ").strip())
+                elif choice_num == 4:
+                    print("✅ Certification confirmed.")
+                    entries.append(cert_data)
+                    break
+                else:
+                    print("Number out of range. Try again.")
+            else:
+                print("Input must be a number. Try again.")
 
         followup = input(
             "Is there anything else you would like to add to your certifications section? (yes/no)\n> "
@@ -107,13 +120,12 @@ Your task:
             break
         else:
             print(cert_question)
-            next_cert = input("> ")
-            combined_answer = next_cert.strip() + " "  # reset for next block
+            next_cert = input("> ").strip()
+            combined_answer = [next_cert + " ,"]
 
     return entries
 
-
-# test harness
+# test
 if __name__ == "__main__":
     cert_entries = collect_certification_entries()
     print("\n=== FINAL CERTIFICATION DATA ===")
